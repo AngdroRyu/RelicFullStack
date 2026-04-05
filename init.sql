@@ -1,15 +1,17 @@
--- Create users table (SQLite automatically ignores if exists)
+-- init.sql
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    email TEXT NOT NULL
+    username TEXT NOT NULL UNIQUE
 );
-
--- Seed data only if empty
-INSERT INTO users (name, email)
-SELECT 'Alice', 'alice@email.com'
-WHERE NOT EXISTS (SELECT 1 FROM users);
-
-INSERT INTO users (name, email)
-SELECT 'Bob', 'bob@email.com'
-WHERE NOT EXISTS (SELECT 1 FROM users);
+CREATE TABLE IF NOT EXISTS relics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    set_name TEXT,
+    piece TEXT,
+    slot TEXT,
+    main_stat TEXT,
+    main_value TEXT,
+    image_path TEXT,
+    timestamp TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
