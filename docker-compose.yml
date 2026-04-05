@@ -43,7 +43,7 @@ services:
       # KRaft mode
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_NODE_ID: 1
-
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       # Controller quorum
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
 

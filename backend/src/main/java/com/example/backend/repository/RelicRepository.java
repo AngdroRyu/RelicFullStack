@@ -9,4 +9,6 @@ import java.util.List;
 @Repository
 public interface RelicRepository extends JpaRepository<Relic, Long> {
     List<Relic> findByUsername(String username);
+
+    Relic findTopByUsernameOrderByTimestampDesc(String username);
 }

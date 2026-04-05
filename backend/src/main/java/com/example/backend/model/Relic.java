@@ -1,5 +1,6 @@
 package com.example.backend.model;
 
+import java.time.Instant;
 import jakarta.persistence.*;
 import java.util.List;
 
@@ -10,13 +11,14 @@ public class Relic {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id; // primary key for the database
 
+    @Column(name = "`set`")
     private String set;
     private String piece;
     private String slot;
     private String mainStat;
     private String mainValue;
     private String imagePath;
-    private String timestamp;
+    private Instant timestamp;
     private String username;
 
     @OneToMany(cascade = CascadeType.ALL, fetch = FetchType.EAGER)
@@ -83,11 +85,11 @@ public class Relic {
         this.imagePath = imagePath;
     }
 
-    public String getTimestamp() {
+    public Instant getTimestamp() {
         return timestamp;
     }
 
-    public void setTimestamp(String timestamp) {
+    public void setTimestamp(Instant timestamp) {
         this.timestamp = timestamp;
     }
 
