@@ -3,24 +3,29 @@ package com.example.backend.consumer;
 import com.example.backend.model.User;
 import com.example.backend.model.Relic;
 import com.example.backend.repository.RelicRepository;
+import com.example.backend.repository.UserRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+
 import java.util.List;
+import java.util.Optional;
 
 @Component
 public class RelicConsumer {
 
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
     private final RelicRepository relicRepository;
+    private final UserRepository userRepository;
 
     @Autowired
-    public RelicConsumer(RelicRepository relicRepository) {
+    public RelicConsumer(RelicRepository relicRepository, UserRepository userRepository) {
         this.relicRepository = relicRepository;
+        this.userRepository = userRepository;
     }
 
     @KafkaListener(topics = "relics-topic", groupId = "relics-group")
@@ -47,14 +52,29 @@ public class RelicConsumer {
         } catch (Exception e) {
             System.err.println("[PARSE ERROR] Failed to parse message");
             e.printStackTrace();
-            return; // stop processing
+            return;
         }
 
-        // 🔹 STEP 2: Validate data (optional but helpful)
+        // 🔹 STEP 2: Resolve User via UUID
         for (Relic r : relics) {
-            if (r.getUser().getUsername() == null) {
-                System.err.println("[VALIDATION ERROR] Missing username: " + r);
+            if (r.getUser() == null || r.getUser().getUuid() == null) {
+                System.err.println("[VALIDATION ERROR] Missing user UUID: " + r);
                 return;
+            }
+
+            Optional<User> optionalUser = userRepository.findByUuid(r.getUser().getUuid());
+            if (optionalUser.isEmpty()) {
+                System.err.println("[VALIDATION ERROR] No user found with UUID: " + r.getUser().getUuid());
+                return;
+            }
+            User u = optionalUser.get();
+            r.setUser(u);
+
+            r.setUser(u);
+
+            // Ensure timestamp exists
+            if (r.getTimestamp() == null) {
+                r.setTimestamp(java.time.Instant.now());
             }
         }
 
@@ -62,9 +82,7 @@ public class RelicConsumer {
         try {
             System.out.println("[DB SAVE] Attempting to save relics...");
             relicRepository.saveAll(relics);
-
             System.out.println("[DB SAVE SUCCESS] Saved " + relics.size() + " relic(s)");
-
         } catch (Exception e) {
             System.err.println("[DB SAVE ERROR] Failed to save relics");
             e.printStackTrace();
@@ -75,27 +93,21 @@ public class RelicConsumer {
         try {
             relicRepository.flush();
             System.out.println("[FLUSH SUCCESS] Changes flushed to DB");
-
         } catch (Exception e) {
             System.err.println("[FLUSH ERROR] Failed during flush");
             e.printStackTrace();
-            return;
         }
 
         // 🔹 STEP 5: Verify data in DB
         try {
             System.out.println("[VERIFY] Checking DB state...");
-
             for (Relic r : relics) {
-                User u = r.getUser(); // get the User object
-                List<Relic> dbRelics = relicRepository.findByUser(u); // query by User
-                System.out.println("User: " + u.getUsername() + " → " + dbRelics.size() + " relic(s)");
-
+                User u = r.getUser();
+                List<Relic> dbRelics = relicRepository.findByUser(u);
+                System.out.println("User UUID: " + u.getUuid() + " → " + dbRelics.size() + " relic(s)");
                 dbRelics.forEach(dr -> System.out.println("  " + dr));
             }
-
             System.out.println("[VERIFY SUCCESS] Data confirmed in DB");
-
         } catch (Exception e) {
             System.err.println("[VERIFY ERROR] Failed to query DB");
             e.printStackTrace();

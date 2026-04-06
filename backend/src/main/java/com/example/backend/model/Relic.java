@@ -2,6 +2,9 @@ package com.example.backend.model;
 
 import jakarta.persistence.*;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -15,30 +18,28 @@ public class Relic {
 
     @ManyToOne
     @JoinColumn(name = "user_id")
-    @JsonBackReference // Prevent serializing User inside Relic
+    @JsonBackReference
     private User user;
 
     @Column(name = "set_name")
-    @JsonProperty("set") // maps JSON "set" → this field
+    @JsonProperty("set")
     private String setName;
-
     private String piece;
     private String slot;
-
-    @Column(name = "main_stat")
     private String mainStat;
-
-    @Column(name = "main_value")
     private String mainValue;
-
-    @Column(name = "image_path")
     private String imagePath;
 
     private Instant timestamp;
 
-    // -----------------------------
+    @OneToMany(mappedBy = "relic", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<Substat> substats = new ArrayList<>();
+
+    // Constructors
+    public Relic() {
+    }
+
     // Getters & Setters
-    // -----------------------------
     public Long getId() {
         return id;
     }
@@ -109,5 +110,28 @@ public class Relic {
 
     public void setTimestamp(Instant timestamp) {
         this.timestamp = timestamp;
+    }
+
+    public List<Substat> getSubstats() {
+        return substats;
+    }
+
+    public void setSubstats(List<Substat> substats) {
+        this.substats.clear();
+        if (substats != null) {
+            for (Substat s : substats) {
+                addSubstat(s);
+            }
+        }
+    }
+
+    public void addSubstat(Substat substat) {
+        substats.add(substat);
+        substat.setRelic(this);
+    }
+
+    public void removeSubstat(Substat substat) {
+        substats.remove(substat);
+        substat.setRelic(null);
     }
 }

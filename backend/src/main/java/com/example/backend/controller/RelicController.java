@@ -1,6 +1,7 @@
 package com.example.backend.controller;
 
 import com.example.backend.model.Relic;
+import com.example.backend.model.Substat;
 import com.example.backend.model.User;
 import com.example.backend.repository.RelicRepository;
 import com.example.backend.repository.UserRepository;
@@ -14,6 +15,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/relics")
@@ -39,18 +42,17 @@ public class RelicController {
     // GET last timestamp
     // -----------------------------
     @GetMapping("/last-timestamp")
-    public ResponseEntity<LastTimestampResponse> getLastTimestamp(@RequestParam String username) {
-        User user = userRepository.findByUsername(username);
-        if (user == null) {
+    public ResponseEntity<LastTimestampResponse> getLastTimestamp(@RequestParam String uuid) {
+        Optional<User> optionalUser = userRepository.findByUuid(uuid);
+
+        if (optionalUser.isEmpty()) {
             return ResponseEntity.ok(new LastTimestampResponse(null));
         }
+
+        User user = optionalUser.get();
 
         Relic latestRelic = relicRepository.findTopByUserOrderByTimestampDesc(user);
-        if (latestRelic == null) {
-            return ResponseEntity.ok(new LastTimestampResponse(null));
-        }
-
-        String timestampStr = latestRelic.getTimestamp() != null
+        String timestampStr = latestRelic != null && latestRelic.getTimestamp() != null
                 ? latestRelic.getTimestamp().toString()
                 : null;
 
@@ -61,53 +63,46 @@ public class RelicController {
     // POST relics (save to DB + Kafka)
     // -----------------------------
     @PostMapping("/electron-data")
-    public ResponseEntity<String> sendRelics(@RequestParam String username,
+    public ResponseEntity<String> sendRelics(
+            @RequestParam("uuid") String uuid,
             @RequestBody List<Relic> relics) {
 
-        System.out.println("\n=== [POST /electron-data] ===");
-        System.out.println("Username: " + username);
-        System.out.println("Relics received: " + relics.size());
+        User user = userRepository.findByUuid(uuid)
+                .orElseGet(() -> {
+                    User newUser = new User();
+                    newUser.setUuid(uuid);
+                    return userRepository.save(newUser);
+                });
 
-        if (relics == null || relics.isEmpty()) {
-            System.err.println("[VALIDATION ERROR] No relics provided");
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body("No relics provided");
-        }
+        // 2. Save each relic with substats
+        for (Relic relic : relics) {
+            relic.setUser(user);
 
-        try {
-            // Find or create user
-            User user = userRepository.findByUsername(username);
-            if (user == null) {
-                user = new User();
-                user.setUsername(username);
-                userRepository.save(user);
-            }
-
-            // Associate each relic with the user and save to DB
-            for (Relic r : relics) {
-                r.setUser(user);
-                // Ensure timestamp exists
-                if (r.getTimestamp() == null) {
-                    r.setTimestamp(Instant.now());
+            // Make sure substats are correctly linked
+            if (relic.getSubstats() != null) {
+                for (Substat s : relic.getSubstats()) {
+                    s.setRelic(relic);
                 }
-                relicRepository.save(r);
             }
 
-            // Serialize relics to JSON
-            String json = objectMapper.writeValueAsString(relics);
-            System.out.println("[SERIALIZATION SUCCESS] JSON length: " + json.length());
-
-            // Synchronous send to Kafka
-            kafkaTemplate.send("relics-topic", username, json).get();
-            System.out.println("[KAFKA SEND SUCCESS] Topic: relics-topic, Key: " + username);
-
-            return ResponseEntity.ok("Relics saved and sent successfully");
-
-        } catch (Exception e) {
-            System.err.println("[KAFKA/DB FAILURE]");
-            e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Failed to process relics: " + e.getMessage());
+            relicRepository.save(relic); // CascadeType.ALL will save substats too
         }
+
+        return ResponseEntity.ok("Relics saved successfully");
+    }
+
+    // -----------------------------
+    // REGISTER USER
+    // -----------------------------
+    @PostMapping("/register")
+    public ResponseEntity<String> register() {
+        String uuid = UUID.randomUUID().toString();
+
+        User user = new User();
+        user.setUuid(uuid);
+
+        userRepository.save(user);
+
+        return ResponseEntity.ok(uuid);
     }
 }
