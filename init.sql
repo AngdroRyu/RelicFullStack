@@ -21,5 +21,11 @@ CREATE TABLE IF NOT EXISTS substats (
     relic_id INTEGER NOT NULL,
     name TEXT NOT NULL,
     value TEXT NOT NULL,
+
+    total_rolls INTEGER,
+    low_rolls INTEGER,
+    med_rolls INTEGER,
+    high_rolls INTEGER,
+
     FOREIGN KEY (relic_id) REFERENCES relics(id) ON DELETE CASCADE
 );
