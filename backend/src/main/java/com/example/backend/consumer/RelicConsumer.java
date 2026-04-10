@@ -1,118 +1,121 @@
 package com.example.backend.consumer;
 
-import com.example.backend.model.User;
+import com.example.backend.dto.RelicDTO;
+import com.example.backend.dto.SubstatDTO;
+import com.example.backend.dto.RelicEventDTO;
 import com.example.backend.model.Relic;
+import com.example.backend.model.Substat;
+import com.example.backend.model.User;
 import com.example.backend.repository.RelicRepository;
 import com.example.backend.repository.UserRepository;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+
 import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 @Component
 public class RelicConsumer {
 
-    private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+    private final ObjectMapper objectMapper;
     private final RelicRepository relicRepository;
     private final UserRepository userRepository;
 
-    @Autowired
-    public RelicConsumer(RelicRepository relicRepository, UserRepository userRepository) {
+    public RelicConsumer(
+            ObjectMapper objectMapper,
+            RelicRepository relicRepository,
+            UserRepository userRepository) {
+        this.objectMapper = objectMapper;
         this.relicRepository = relicRepository;
         this.userRepository = userRepository;
     }
 
+    @Transactional
     @KafkaListener(topics = "relics-topic", groupId = "relics-group")
     public void listen(ConsumerRecord<String, String> record) {
-        String message = record.value();
-
-        System.out.println("\n=== [KAFKA MESSAGE RECEIVED] ===");
-        System.out.println("Raw message: " + message);
-
-        List<Relic> relics;
-
-        // 🔹 STEP 1: Parse JSON
+        System.out.println("🔥 CONSUMER TRIGGERED");
         try {
-            if (message.trim().startsWith("[")) {
-                relics = objectMapper.readValue(message, new TypeReference<List<Relic>>() {
-                });
-            } else {
-                Relic single = objectMapper.readValue(message, Relic.class);
-                relics = List.of(single);
+            String message = record.value();
+
+            // 1. Deserialize Kafka message
+            RelicEventDTO event = objectMapper.readValue(message, RelicEventDTO.class);
+
+            String uuid = event.getUuid();
+            List<RelicDTO> relicDTOs = event.getRelics();
+
+            // 2. Find or create user
+            User user = userRepository.findByUuid(uuid)
+                    .orElseGet(() -> {
+                        User newUser = new User();
+                        newUser.setUuid(uuid);
+                        return userRepository.save(newUser);
+                    });
+
+            // 3. Build batch
+            List<Relic> batch = new ArrayList<>();
+
+            for (RelicDTO relicDTO : relicDTOs) {
+
+                Relic relic = new Relic();
+                relic.setUser(user);
+                relic.setSetName(relicDTO.getSet());
+                relic.setPiece(relicDTO.getPiece());
+                relic.setSlot(relicDTO.getSlot());
+                relic.setMainStat(relicDTO.getMainStat());
+                relic.setMainValue(relicDTO.getMainValue());
+                relic.setImagePath(relicDTO.getImagePath());
+
+                // timestamp safe parse
+                Instant timestamp;
+                try {
+                    timestamp = relicDTO.getTimestamp() != null
+                            ? Instant.parse(relicDTO.getTimestamp())
+                            : Instant.now();
+                } catch (Exception e) {
+                    timestamp = Instant.now();
+                }
+                relic.setTimestamp(timestamp);
+
+                // substats
+                List<Substat> substats = new ArrayList<>();
+
+                if (relicDTO.getSubstats() != null) {
+                    for (SubstatDTO sDTO : relicDTO.getSubstats()) {
+
+                        Substat s = new Substat();
+                        s.setName(sDTO.getName());
+                        s.setValue(sDTO.getValue());
+                        s.setRelic(relic);
+
+                        if (sDTO.getRolls() != null && sDTO.getRolls().getBreakdown() != null) {
+                            s.setTotalRolls(sDTO.getRolls().getTotalRolls());
+                            s.setLowRolls(sDTO.getRolls().getBreakdown().getLow());
+                            s.setMedRolls(sDTO.getRolls().getBreakdown().getMed());
+                            s.setHighRolls(sDTO.getRolls().getBreakdown().getHigh());
+                        }
+
+                        substats.add(s);
+                    }
+                }
+
+                relic.setSubstats(substats);
+
+                batch.add(relic);
             }
 
-            System.out.println("[PARSE SUCCESS] Parsed " + relics.size() + " relic(s)");
+            // 4. Batch insert
+            relicRepository.saveAll(batch);
+
+            System.out.println("[KAFKA] Saved " + batch.size() + " relics successfully");
 
         } catch (Exception e) {
-            System.err.println("[PARSE ERROR] Failed to parse message");
-            e.printStackTrace();
-            return;
-        }
-
-        // 🔹 STEP 2: Resolve User via UUID
-        for (Relic r : relics) {
-            if (r.getUser() == null || r.getUser().getUuid() == null) {
-                System.err.println("[VALIDATION ERROR] Missing user UUID: " + r);
-                return;
-            }
-
-            Optional<User> optionalUser = userRepository.findByUuid(r.getUser().getUuid());
-            if (optionalUser.isEmpty()) {
-                System.err.println("[VALIDATION ERROR] No user found with UUID: " + r.getUser().getUuid());
-                return;
-            }
-            User u = optionalUser.get();
-            r.setUser(u);
-
-            r.setUser(u);
-
-            // Ensure timestamp exists
-            if (r.getTimestamp() == null) {
-                r.setTimestamp(java.time.Instant.now());
-            }
-        }
-
-        // 🔹 STEP 3: Save to DB
-        try {
-            System.out.println("[DB SAVE] Attempting to save relics...");
-            relicRepository.saveAll(relics);
-            System.out.println("[DB SAVE SUCCESS] Saved " + relics.size() + " relic(s)");
-        } catch (Exception e) {
-            System.err.println("[DB SAVE ERROR] Failed to save relics");
-            e.printStackTrace();
-            return;
-        }
-
-        // 🔹 STEP 4: Flush (optional)
-        try {
-            relicRepository.flush();
-            System.out.println("[FLUSH SUCCESS] Changes flushed to DB");
-        } catch (Exception e) {
-            System.err.println("[FLUSH ERROR] Failed during flush");
+            System.err.println("[KAFKA ERROR]");
             e.printStackTrace();
         }
-
-        // 🔹 STEP 5: Verify data in DB
-        try {
-            System.out.println("[VERIFY] Checking DB state...");
-            for (Relic r : relics) {
-                User u = r.getUser();
-                List<Relic> dbRelics = relicRepository.findByUser(u);
-                System.out.println("User UUID: " + u.getUuid() + " → " + dbRelics.size() + " relic(s)");
-                dbRelics.forEach(dr -> System.out.println("  " + dr));
-            }
-            System.out.println("[VERIFY SUCCESS] Data confirmed in DB");
-        } catch (Exception e) {
-            System.err.println("[VERIFY ERROR] Failed to query DB");
-            e.printStackTrace();
-        }
-
-        System.out.println("=== [PROCESS COMPLETE] ===\n");
     }
 }

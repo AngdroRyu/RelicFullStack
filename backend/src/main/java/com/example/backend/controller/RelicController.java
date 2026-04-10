@@ -1,21 +1,21 @@
 package com.example.backend.controller;
 
 import com.example.backend.model.Relic;
-import com.example.backend.model.Substat;
+
 import com.example.backend.model.User;
 import com.example.backend.repository.RelicRepository;
 import com.example.backend.repository.UserRepository;
 import com.example.backend.dto.LastTimestampResponse;
 import com.example.backend.dto.RelicDTO;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.beans.factory.annotation.Autowired;
+
 import org.springframework.http.ResponseEntity;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.web.bind.annotation.*;
-import com.example.backend.dto.SubstatDTO;
 
-import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -25,14 +25,19 @@ public class RelicController {
 
     private final RelicRepository relicRepository;
     private final UserRepository userRepository;
+    private final KafkaTemplate<String, String> kafkaTemplate;
+    private final ObjectMapper objectMapper;
 
-    public RelicController(RelicRepository relicRepository,
+    public RelicController(
             UserRepository userRepository,
+            RelicRepository relicRepository,
             KafkaTemplate<String, String> kafkaTemplate,
             ObjectMapper objectMapper) {
-        this.relicRepository = relicRepository;
-        this.userRepository = userRepository;
 
+        this.userRepository = userRepository;
+        this.relicRepository = relicRepository;
+        this.kafkaTemplate = kafkaTemplate;
+        this.objectMapper = objectMapper;
     }
 
     // -----------------------------
@@ -71,62 +76,22 @@ public class RelicController {
     @PostMapping("/electron-data")
     public ResponseEntity<String> sendRelics(
             @RequestParam("uuid") String uuid,
-            // request body is a list of relic DTOs, which will be automatically
-            // deserialized from JSON by Spring
             @RequestBody List<RelicDTO> relicDTOs) {
 
-        // 1. Find or create the user
-        User user = userRepository.findByUuid(uuid)
-                .orElseGet(() -> {
-                    User newUser = new User();
-                    newUser.setUuid(uuid);
-                    return userRepository.save(newUser);
-                });
+        try {
+            // attach uuid to payload (optional but recommended)
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("uuid", uuid);
+            payload.put("relics", relicDTOs);
+            String message = objectMapper.writeValueAsString(payload);
 
-        // 2. Save each relic with substats
-        for (RelicDTO relicDTO : relicDTOs) {
-            Relic relic = new Relic();
-            relic.setUser(user);
-            relic.setSetName(relicDTO.getSet());
-            relic.setPiece(relicDTO.getPiece());
-            relic.setSlot(relicDTO.getSlot());
-            relic.setMainStat(relicDTO.getMainStat());
-            relic.setMainValue(relicDTO.getMainValue());
-            relic.setImagePath(relicDTO.getImagePath());
+            kafkaTemplate.send("relics-topic", message);
 
-            // Parse timestamp string to Instant
-            try {
-                if (relicDTO.getTimestamp() != null) {
-                    relic.setTimestamp(Instant.parse(relicDTO.getTimestamp()));
-                }
-            } catch (Exception e) {
-                relic.setTimestamp(Instant.now()); // fallback
-            }
-
-            // Map substats
-            if (relicDTO.getSubstats() != null) {
-                for (SubstatDTO sDTO : relicDTO.getSubstats()) {
-                    Substat s = new Substat();
-                    s.setName(sDTO.getName());
-                    s.setValue(sDTO.getValue());
-                    s.setRelic(relic);
-
-                    // map rolls
-                    if (sDTO.getRolls() != null) {
-                        s.setTotalRolls(sDTO.getRolls().getTotalRolls());
-                        s.setLowRolls(sDTO.getRolls().getBreakdown().getLow());
-                        s.setMedRolls(sDTO.getRolls().getBreakdown().getMed());
-                        s.setHighRolls(sDTO.getRolls().getBreakdown().getHigh());
-                    }
-
-                    relic.getSubstats().add(s);
-                }
-            }
-
-            relicRepository.save(relic);
+            return ResponseEntity.ok("Sent to Kafka");
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).body("Failed to send to Kafka");
         }
-
-        return ResponseEntity.ok("Relics saved successfully");
     }
 
     // -----------------------------

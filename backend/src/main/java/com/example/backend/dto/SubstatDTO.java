@@ -1,5 +1,7 @@
 package com.example.backend.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 public class SubstatDTO {
     private String name;
     private String value;
@@ -31,6 +33,7 @@ public class SubstatDTO {
     }
 
     // Inner class for rolls
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class Rolls {
         private int totalRolls;
         private Breakdown breakdown;
@@ -51,6 +54,7 @@ public class SubstatDTO {
             this.breakdown = breakdown;
         }
 
+        // Inner class for breakdown
         public static class Breakdown {
             private int low;
             private int med;
