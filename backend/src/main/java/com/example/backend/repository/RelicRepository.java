@@ -33,18 +33,18 @@ public interface RelicRepository extends JpaRepository<Relic, Long> {
     List<Object[]> RelicSetSlotMainStatCount();
 
     // =========================
-    // SUBSTAT COUNTS BY SET + SLOT
+    // SUBSTAT COUNTS BY SET + mainstat
     // =========================
     @Query("""
                 SELECT
                     r.setName,
-                    r.slot,
+                    r.mainStat,
                     s.name,
                     COUNT(r)
                 FROM Relic r
                 LEFT JOIN r.substats s
-                GROUP BY r.setName, r.slot, s.name
-                ORDER BY r.setName, r.slot, s.name
+                GROUP BY r.setName, r.mainStat, s.name
+                ORDER BY r.setName, r.mainStat, s.name
             """)
-    List<Object[]> countSubstatsBySlotandSet();
+    List<Object[]> countSubstatsByMainStatAndSet();
 }

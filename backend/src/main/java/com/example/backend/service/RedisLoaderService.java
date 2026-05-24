@@ -49,7 +49,11 @@ public class RedisLoaderService {
                             " | Field: " + stat +
                             " | Value: " + count);
 
+            // main data
             redisTemplate.opsForHash().put(key, stat, String.valueOf(count));
+            // sets and slots for quick lookup
+            redisTemplate.opsForSet().add("relic_sets", normalizedSet);
+            redisTemplate.opsForSet().add("relic:" + normalizedSet + ":slots", normalizedSlot);
         }
 
         System.out.println("=== DONE LOADING REDIS ===");

@@ -17,7 +17,6 @@ public class RedisConfig {
 
         StringRedisSerializer stringSerializer = new StringRedisSerializer();
 
-        // 🔥 CRITICAL FIX
         template.setKeySerializer(stringSerializer);
         template.setHashKeySerializer(stringSerializer);
 

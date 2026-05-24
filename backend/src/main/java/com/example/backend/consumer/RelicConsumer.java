@@ -8,6 +8,7 @@ import com.example.backend.model.Substat;
 import com.example.backend.model.User;
 import com.example.backend.repository.RelicRepository;
 import com.example.backend.repository.UserRepository;
+import com.example.backend.service.RelicRedisService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -25,14 +26,17 @@ public class RelicConsumer {
     private final ObjectMapper objectMapper;
     private final RelicRepository relicRepository;
     private final UserRepository userRepository;
+    private final RelicRedisService relicRedisService;
 
     public RelicConsumer(
             ObjectMapper objectMapper,
             RelicRepository relicRepository,
-            UserRepository userRepository) {
+            UserRepository userRepository,
+            RelicRedisService relicRedisService) {
         this.objectMapper = objectMapper;
         this.relicRepository = relicRepository;
         this.userRepository = userRepository;
+        this.relicRedisService = relicRedisService;
     }
 
     @Transactional
@@ -110,6 +114,7 @@ public class RelicConsumer {
 
             // 4. Batch insert
             relicRepository.saveAll(batch);
+            relicRedisService.updateFromBatch(batch);
 
             System.out.println("[KAFKA] Saved " + batch.size() + " relics successfully");
 
